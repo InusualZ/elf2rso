@@ -5,8 +5,10 @@ Tool to convert ELF (S)hared (O)bject to Nintendo (R)elocatable (S)hared (O)bjec
 * `-i` or `--input` - It's the ELF File to be parse. **Required**
 * `-o` or `--output` - File path for the resultant file. Default is to change the input file extension to `.rso`
 
-# Known Bugs
-* Internal Relocations have a bug that I haven't being able to trace. (Currently don't have time to fix, but after that it should work)
+# Future Features
+* List all `extern` (weak) symbol in the `import_symbol_table`. Currently only the needed (for relocations) symbol are listed
+* Patch relocations with the `_unresolved` if available and possible (only branch instruction)
+* Add argument option that would allow the user to pass a file with the functions/methods that you want to export from the module
 
 # Credits
 * [PistonMiner's elf2rel](https://github.com/PistonMiner/ttyd-tools/tree/master/ttyd-tools/elf2rel) for using some of his code as base for building this tool. Since Nintendo's REL module format is the precursor to this format.

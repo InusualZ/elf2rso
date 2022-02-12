@@ -571,8 +571,8 @@ int main(int argc, char** argv)
         // Convert the relocation offset from being section relative to file relative
         const auto offset = section.offset + relocation.offset;
 
-        // Get the symbol index inside the import symbol table
-        const auto& sectionIndex = relocation.section;
+        // Get the section index of the symbol being patched to
+        const auto& sectionIndex = relocation.targetSection;
 
         writeRelocation(fileWriter, offset, sectionIndex, relocation.type, relocation.addend);
     }
