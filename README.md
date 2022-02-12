@@ -5,11 +5,12 @@ Tool to convert ELF (S)hared (O)bject to Nintendo (R)elocatable (S)hared (O)bjec
 * `-i` or `--input` - It's the ELF File to be parse. **Required**
 * `-o` or `--output` - File path for the resultant file. Default is to change the input file extension to `.rso`
 * `-a` or `--fullpath` - Use the fullpath of the input for the module's name
+* `-e` or `--export` - Path of file containing the symbols allowed to be exported (Divided by `\n`)
+* `-ne` or `--no-export` - Disable exporting any symbol from the module
 
 # Future Features
 * List all `extern` (weak) symbol in the `import_symbol_table`. Currently only the needed (for relocations) symbol are listed
 * Patch relocations with the `_unresolved` if available and possible (only branch instruction)
-* Add argument option that would allow the user to pass a file with the functions/methods that you want to export from the module
 * Create Static RSO. Module created from the `main.dol`. This module export the functions/method used by the _child_ modules
 
 # Credits

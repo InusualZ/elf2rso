@@ -92,7 +92,27 @@ u32 getHash(std::string& symbol)
     return hash;
 }
 
-int createRSO(fs::path input, ELFIO::elfio& inputElf, fs::path output, bool fullpath)
+std::vector<std::string> readExportFile(fs::path input)
+{
+    std::vector<std::string> result;
+    std::ifstream inputFile(input);
+
+    if (inputFile.bad())
+    {
+        printf("Error! Unable to open the export file: %s", input.string().c_str());
+        exit(1);
+    }
+
+    std::string line;
+    while (std::getline(inputFile, line))
+    {
+        result.push_back(line);
+    }
+
+    return result;
+}
+
+int createRSO(fs::path input, ELFIO::elfio& inputElf, fs::path output, bool fullpath, std::unique_ptr<std::vector<std::string>> exportList)
 {
     output.replace_extension(".rso");
 
@@ -227,7 +247,7 @@ int createRSO(fs::path input, ELFIO::elfio& inputElf, fs::path output, bool full
     std::vector<RSOSymbol> internalSymbolTable;
     std::vector<RSOSymbol> externalSymbolTable;
 
-    const auto tryInsertSymbol = [](std::vector<RSOSymbol>& symbolTable, std::string symbolName,
+    const auto tryInsertSymbol = [&](std::vector<RSOSymbol>& symbolTable, std::string symbolName,
                                     u32 sectionIndex, u32 sectionRelativeOffset) {
         const auto hash = getHash(symbolName);
         const auto it = std::find_if(symbolTable.begin(), symbolTable.end(),
@@ -238,8 +258,19 @@ int createRSO(fs::path input, ELFIO::elfio& inputElf, fs::path output, bool full
             return std::make_tuple(static_cast<u32>(it - symbolTable.begin()), hash);
         }
 
-        symbolTable.emplace_back(
-            RSOSymbol{hash, std::move(symbolName), sectionIndex, sectionRelativeOffset});
+        auto appendSymbol = true;
+        if (exportList && &internalSymbolTable == &symbolTable)
+        {
+            const auto it = std::find(exportList->begin(), exportList->end(), symbolName);
+            appendSymbol = it != exportList->end();
+        }
+
+        if (appendSymbol)
+        {
+            symbolTable.emplace_back(
+                RSOSymbol{hash, std::move(symbolName), sectionIndex, sectionRelativeOffset});
+        }
+
         return std::make_tuple(static_cast<u32>(symbolTable.size() - 1), hash);
     };
 
@@ -468,7 +499,8 @@ int createRSO(fs::path input, ELFIO::elfio& inputElf, fs::path output, bool full
     writeModuleHeader(fileWriter, header);
 }
 
-int createStaticRSO(fs::path input, ELFIO::elfio inputElf, fs::path output, bool fullpath)
+int createStaticRSO(fs::path input, ELFIO::elfio inputElf, fs::path output, bool fullpath,
+                    std::unique_ptr<std::vector<std::string>> exportList)
 {
     output.replace_extension(".sel");
     printf("Error! Creating a static rso module is not supported yet!");
@@ -486,6 +518,12 @@ int main(int argc, char** argv)
         .action("true")
         .set_default(false)
         .help("Use fullpath for module name");
+    parser.add_option("-e", "--export")
+        .dest("export")
+        .help("File with a list of exported symbol. Divided by `\n`");
+    parser.add_option("-ne", "--no-export")
+        .dest("no-export")
+        .help("Don't export any symbol from the module");
 
     const optparse::Values options = parser.parse_args(argc, argv);
 
@@ -506,6 +544,18 @@ int main(int argc, char** argv)
         outputFile = options.get("output");
     }
 
+    std::unique_ptr<std::vector<std::string>> exportList;
+    if (options.is_set_by_user("no-export"))
+    {
+        exportList = std::make_unique<std::vector<std::string>>();
+    }
+
+    if (options.is_set_by_user("export"))
+    {
+        exportList = std::make_unique<std::vector<std::string>>(
+            std::move(readExportFile(options.get("export"))));
+    }
+
     // Load input file
     ELFIO::elfio inputElf;
     if (!inputElf.load(elfFile))
@@ -518,7 +568,7 @@ int main(int argc, char** argv)
 
     if (inputElf.get_type() == ET_REL)
     {
-        return createRSO(elfFile, inputElf, outputFile, useFullPath);
+        return createRSO(elfFile, inputElf, outputFile, useFullPath, std::move(exportList));
     }
     else if (inputElf.get_type() != ET_EXEC)
     {
@@ -526,5 +576,5 @@ int main(int argc, char** argv)
         return 1;
     }
 
-    return createStaticRSO(elfFile, inputElf, outputFile, useFullPath);
+    return createStaticRSO(elfFile, inputElf, outputFile, useFullPath, std::move(exportList));
 }
