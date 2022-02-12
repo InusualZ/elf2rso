@@ -35,4 +35,4 @@ endif()
 include_directories(.)
 include_directories(elfio)
 
-add_executable(elf2rso elf2rso.cpp FileWriter.h optparser.h swap.h types.h)
+add_executable(elf2rso elf2rso.cpp FileWriter.h optparser.h RSO.h swap.h types.h)

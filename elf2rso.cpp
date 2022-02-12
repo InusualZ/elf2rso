@@ -5,87 +5,11 @@
 #include <tuple>
 
 #include "FileWriter.h"
+#include "RSO.h"
 #include "elfio/elfio.hpp"
 #include "optparser.h"
 
-enum RelocationType
-{
-    R_PPC_NONE = 0,
-    R_PPC_ADDR32,
-    R_PPC_ADDR24,
-    R_PPC_ADDR16,
-    R_PPC_ADDR16_LO,
-    R_PPC_ADDR16_HI,
-    R_PPC_ADDR16_HA,
-    R_PPC_ADDR14,
-    R_PPC_ADDR14_BRTAKEN,
-    R_PPC_ADDR14_BRNKTAKEN,
-    R_PPC_REL24,
-    R_PPC_REL14,
-    R_PPC_COUNT
-};
-
 namespace fs = std::filesystem;
-
-struct RSOHeader
-{
-    u32 next_module_link;
-    u32 prev_module_link;
-    u32 section_count;
-    u32 section_info_offset;
-    u32 module_name_offset;
-    u32 module_name_size;
-    u32 module_version;
-    u32 bss_size;
-    u8 prolog_section_index;
-    u8 epilog_section_index;
-    u8 unresolved_section_index;
-    u8 bss_section_index;
-
-    u32 prolog_function_offset;
-    u32 epilog_function_offset;
-    u32 unresolved_function_offset;
-
-    u32 internal_relocation_table_offset;
-    u32 internal_relocation_table_size;
-
-    u32 external_relocation_table_offset;
-    u32 external_relocation_table_size;
-
-    u32 export_symbol_table_offset;
-    u32 export_symbol_table_size;
-    u32 export_symbol_names_offset;
-
-    u32 import_symbol_table_offset;
-    u32 import_symbol_table_size;
-    u32 import_symbol_names_offset;
-};
-
-struct Relocation
-{
-    u32 symbolHash;
-    u32 symbolIndex;
-    uint32_t section;
-    uint32_t offset;
-    uint8_t targetSection;  // target symbol
-    uint32_t addend;
-    uint8_t type;
-};
-
-struct RSOSectionInfo
-{
-    u32 offset;
-    u32 size;
-};
-
-struct RSOSymbol
-{
-    u32 hash;
-    std::string symbol;
-    u32 sectionIndex;
-    u32 sectionRelativeOffset;  // For exported symbol this mean the symbol offset, for imported
-                                // symbol this mean the relocation offset
-};
 
 void writeModuleHeader(FileWriter& writer, RSOHeader& header)
 {
@@ -168,49 +92,11 @@ u32 getHash(std::string& symbol)
     return hash;
 }
 
-int main(int argc, char** argv)
+int createRSO(fs::path input, ELFIO::elfio& inputElf, fs::path output, bool fullpath)
 {
-    optparse::OptionParser parser = optparse::OptionParser().description("Elf2RSO v1.0");
+    output.replace_extension(".rso");
 
-    parser.add_option("-i", "--input").dest("input").help("ELF File").metavar("FILE");
-    parser.add_option("-o", "--output").dest("output").set_default("").help("Output file");
-    parser.add_option("-a", "--fullpath")
-        .dest("fullpath")
-        .action("true")
-        .set_default(false)
-        .help("Use fullpath for module name");
-
-    const optparse::Values options = parser.parse_args(argc, argv);
-
-    if (!options.is_set("input"))
-    {
-        parser.print_help();
-        return -1;
-    }
-
-    const auto elfFile = options["input"];
-    fs::path rsoFile;
-    if (!options.is_set_by_user("output"))
-    {
-        rsoFile = elfFile;
-        rsoFile.replace_extension(".rso");
-    }
-    else
-    {
-        rsoFile = options.get("output");
-    }
-
-    // Load input file
-    ELFIO::elfio inputElf;
-    if (!inputElf.load(elfFile))
-    {
-        printf("Failed to load input file\n");
-        return 1;
-    }
-
-    const bool useFullPath = options.get("fullpath");
-
-    FileWriter fileWriter(rsoFile);
+    FileWriter fileWriter(output);
 
     // Find special sections
     ELFIO::section* symSection = nullptr;
@@ -325,15 +211,15 @@ int main(int argc, char** argv)
     fileWriter.seek(static_cast<size_t>(header.module_name_offset));
 
     // Write Module Name
-    if (!useFullPath)
+    if (!fullpath)
     {
-        std::string name = rsoFile.filename().string();
+        std::string name = input.filename().string();
         header.module_name_size = name.size();
         fileWriter.writeString(name);
     }
     else
     {
-        std::string name = fs::absolute(rsoFile).string();
+        std::string name = fs::absolute(input).string();
         header.module_name_size = name.size();
         fileWriter.writeString(name);
     }
@@ -357,8 +243,8 @@ int main(int argc, char** argv)
         return std::make_tuple(static_cast<u32>(symbolTable.size() - 1), hash);
     };
 
-    std::vector<Relocation> internalRelocations;
-    std::vector<Relocation> externalRelocations;
+    std::vector<RSORelocation> internalRelocations;
+    std::vector<RSORelocation> externalRelocations;
 
     // Acumulate Relocations
     for (const auto& section : inputElf.sections)
@@ -418,7 +304,7 @@ int main(int argc, char** argv)
                 return 1;
             }
 
-            Relocation rel;
+            RSORelocation rel;
             rel.section = relocationSectionIndex;
             rel.offset = static_cast<uint32_t>(offset);
             rel.type = type;
@@ -448,7 +334,7 @@ int main(int argc, char** argv)
 
     // Sort External Relocation, by Imported Symbol Index
     std::sort(externalRelocations.begin(), externalRelocations.end(),
-              [](const Relocation& left, const Relocation& right) {
+              [](const RSORelocation& left, const RSORelocation& right) {
                   return left.symbolIndex > right.symbolIndex;
               });
 
@@ -538,7 +424,7 @@ int main(int argc, char** argv)
         // Find first relocation that uses this
         const auto& relIt = std::find_if(
             externalRelocations.begin(), externalRelocations.end(),
-            [&](const Relocation& rel) { return rel.symbolHash == externalSymbol.hash; });
+            [&](const RSORelocation& rel) { return rel.symbolHash == externalSymbol.hash; });
 
         if (relIt == externalRelocations.end())
         {
@@ -580,6 +466,65 @@ int main(int argc, char** argv)
     fileWriter.padToAlignment(32);
     fileWriter.seek(0);
     writeModuleHeader(fileWriter, header);
+}
 
-    return 0;
+int createStaticRSO(fs::path input, ELFIO::elfio inputElf, fs::path output, bool fullpath)
+{
+    output.replace_extension(".sel");
+    printf("Error! Creating a static rso module is not supported yet!");
+    return 1;
+}
+
+int main(int argc, char** argv)
+{
+    optparse::OptionParser parser = optparse::OptionParser().description("Elf2RSO v1.0");
+
+    parser.add_option("-i", "--input").dest("input").help("ELF File").metavar("FILE");
+    parser.add_option("-o", "--output").dest("output").set_default("").help("Output file");
+    parser.add_option("-a", "--fullpath")
+        .dest("fullpath")
+        .action("true")
+        .set_default(false)
+        .help("Use fullpath for module name");
+
+    const optparse::Values options = parser.parse_args(argc, argv);
+
+    if (!options.is_set("input"))
+    {
+        parser.print_help();
+        return -1;
+    }
+
+    const auto elfFile = options["input"];
+    fs::path outputFile;
+    if (!options.is_set_by_user("output"))
+    {
+        outputFile = elfFile;
+    }
+    else
+    {
+        outputFile = options.get("output");
+    }
+
+    // Load input file
+    ELFIO::elfio inputElf;
+    if (!inputElf.load(elfFile))
+    {
+        printf("Failed to load input file\n");
+        return 1;
+    }
+
+    const bool useFullPath = options.get("fullpath");
+
+    if (inputElf.get_type() == ET_REL)
+    {
+        return createRSO(elfFile, inputElf, outputFile, useFullPath);
+    }
+    else if (inputElf.get_type() != ET_EXEC)
+    {
+        printf("Error! Unsupported binary ELF type: %d", inputElf.get_type());
+        return 1;
+    }
+
+    return createStaticRSO(elfFile, inputElf, outputFile, useFullPath);
 }

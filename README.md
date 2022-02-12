@@ -9,6 +9,7 @@ Tool to convert ELF (S)hared (O)bject to Nintendo (R)elocatable (S)hared (O)bjec
 * List all `extern` (weak) symbol in the `import_symbol_table`. Currently only the needed (for relocations) symbol are listed
 * Patch relocations with the `_unresolved` if available and possible (only branch instruction)
 * Add argument option that would allow the user to pass a file with the functions/methods that you want to export from the module
+* Create Static RSO. Module created from the `main.dol`. This module export the functions/method used by the _child_ modules
 
 # Credits
 * [PistonMiner's elf2rel](https://github.com/PistonMiner/ttyd-tools/tree/master/ttyd-tools/elf2rel) for using some of his code as base for building this tool. Since Nintendo's REL module format is the precursor to this format.
