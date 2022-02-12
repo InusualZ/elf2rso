@@ -4,6 +4,7 @@ Tool to convert ELF (S)hared (O)bject to Nintendo (R)elocatable (S)hared (O)bjec
 # Command Line Options
 * `-i` or `--input` - It's the ELF File to be parse. **Required**
 * `-o` or `--output` - File path for the resultant file. Default is to change the input file extension to `.rso`
+* `-a` or `--fullpath` - Use the fullpath of the input for the module's name
 
 # Future Features
 * List all `extern` (weak) symbol in the `import_symbol_table`. Currently only the needed (for relocations) symbol are listed
