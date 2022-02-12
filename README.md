@@ -9,7 +9,7 @@ Tool to convert ELF (S)hared (O)bject to Nintendo (R)elocatable (S)hared (O)bjec
 * Internal Relocations have a bug that I haven't being able to trace. (Currently don't have time to fix, but after that it should work)
 
 # Credits
-* [PistonMiner's elf2rel](https://github.com/PistonMiner/ttyd-tools/tree/master/ttyd-tools/elf2rel) for giving me some rough idea of how to attack this problem. Since Nintendo's REL module format is the precursor to this format.
+* [PistonMiner's elf2rel](https://github.com/PistonMiner/ttyd-tools/tree/master/ttyd-tools/elf2rel) for using some of his code as base for building this tool. Since Nintendo's REL module format is the precursor to this format.
 
 # Documentation
 * [ELF Specification](http://www.skyfree.org/linux/references/ELF_Format.pdf)

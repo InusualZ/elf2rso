@@ -148,6 +148,7 @@ void writeRelocation(FileWriter& writer, u32 offset, u32 symbol_id, u8 relocatio
     writer.writeBE(addend);
 }
 
+// @Source: PistonMiner's elf2rel
 const std::vector<std::string> cRelSectionMask = {".init",   ".text", ".ctors", ".dtors",
                                                   ".rodata", ".data", ".bss"};
 
@@ -230,6 +231,7 @@ int main(int argc, char** argv)
     ELFIO::symbol_section_accessor symbols(inputElf, symSection);
 
     // Find prolog, epilog and unresolved
+    // @Source: PistonMiner's elf2rel
     auto findSymbolSectionAndOffset = [&](const std::string& name, u8& sectionIndex, u32& offset) {
         ELFIO::Elf64_Addr addr;
         ELFIO::Elf_Xword size;
