@@ -1,0 +1,17 @@
+.vscode/
+.vs/
+build*
+out/
+*.elf
+*.rso
+
+*.vcxproj*
+*.sln
+
+# CMake
+cmake-build-debug/
+CMakeCache.txt
+CMakeFiles/
+CMakeSettings*
+cmake_install.cmake
+.clangd/
