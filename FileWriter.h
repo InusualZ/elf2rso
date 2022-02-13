@@ -44,7 +44,7 @@ class FileWriter
 
     inline size_t position() { return static_cast<size_t>(filestream.tellp()); }
 
-    inline void seek(size_t position) { filestream.seekp(static_cast<size_t>(position)); }
+    inline void seek(size_t position) { filestream.seekp(static_cast<size_t>(position), std::ios::beg); }
 
     inline void padToAlignment(size_t alignment)
     {

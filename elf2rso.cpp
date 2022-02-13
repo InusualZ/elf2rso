@@ -351,11 +351,6 @@ int createRSO(fs::path input, ELFIO::elfio& inputElf, fs::path output, bool full
             if (type == R_PPC_NONE)
                 continue;
 
-            // TODO: If the `_unresolved` function is found and the relocation is of type
-            //		 `R_PPC_REL24` we can immediately patch it and still write the relocation.
-            //		 That way even if at the moment of execution the relocation hasn't being
-            //		 applied it would still call someone.
-
             ELFIO::Elf_Xword size;
             unsigned char bind;
             unsigned char symbolType;
@@ -402,6 +397,27 @@ int createRSO(fs::path input, ELFIO::elfio& inputElf, fs::path output, bool full
                 rel.symbolIndex = static_cast<u32>(symbolIndex);
                 rel.addend = static_cast<uint32_t>(addend + symbolValue);
                 internalRelocations.emplace_back(rel);
+            }
+
+            // Apply relocation with the `_unresolved` as the symbol, if the module export the function
+            if (type == R_PPC_REL24 && header.unresolved_function_offset != 0 &&
+                header.unresolved_section_index == relocationSectionIndex)
+            {
+                const auto& targetSection = inputElf.sections[relocationSectionIndex];
+                auto targetInstruction =
+                    *reinterpret_cast<const u32*>(targetSection->get_data() + offset);
+
+                targetInstruction = Common::swap32(targetInstruction);
+                const auto replacementInstruction = Common::swap32(
+                    ((static_cast<u32>(symbolValue) - static_cast<u32>(offset)) & 0x3fffffcu) | (targetInstruction & 0xfc000003u));
+
+                const auto& fileSection = rsoSections[relocationSectionIndex];
+                const auto currentPosition = fileWriter.position();
+
+                const auto fileOffset = static_cast<size_t>(fileSection.offset + offset);
+                fileWriter.seek(fileOffset);
+                fileWriter.write(replacementInstruction);
+                fileWriter.seek(currentPosition);
             }
         }
     }

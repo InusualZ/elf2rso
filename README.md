@@ -9,7 +9,6 @@ Tool to convert ELF (S)hared (O)bject to Nintendo (R)elocatable (S)hared (O)bjec
 * `-ne` or `--no-export` - Disable exporting any symbol from the module
 
 # Future Features
-* Patch relocations with the `_unresolved` if available and possible (only branch instruction)
 * Create Static RSO. Module created from the `main.dol`. This module export the functions/method used by the _child_ modules
 
 # Credits
