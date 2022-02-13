@@ -112,29 +112,26 @@ std::vector<std::string> readExportFile(fs::path input)
     return result;
 }
 
-int createRSO(fs::path input, ELFIO::elfio& inputElf, fs::path output, bool fullpath, std::unique_ptr<std::vector<std::string>> exportList)
+int createRSO(fs::path input, ELFIO::elfio& inputElf, fs::path output, bool fullpath,
+              std::unique_ptr<std::vector<std::string>> exportList)
 {
     output.replace_extension(".rso");
 
     FileWriter fileWriter(output);
 
-    // Find special sections
-    ELFIO::section* symSection = nullptr;
-    std::vector<ELFIO::section*> internalRelocationSections;
-    for (const auto& section : inputElf.sections)
+    // Find symbol section
+    const auto symSectionIt =
+        std::find_if(inputElf.sections.begin(), inputElf.sections.end(),
+                     [](const auto& section) { return section->get_type() == SHT_SYMTAB; });
+
+    if (symSectionIt == inputElf.sections.begin())
     {
-        if (section->get_type() == SHT_SYMTAB)
-        {
-            symSection = section;
-        }
-        else if (section->get_type() == SHT_RELA)
-        {
-            internalRelocationSections.emplace_back(section);
-        }
+        printf("Error! Unable to find symbol section");
+        return 1;
     }
 
     // Symbol accessor
-    ELFIO::symbol_section_accessor symbols(inputElf, symSection);
+    ELFIO::symbol_section_accessor symbols(inputElf, *symSectionIt);
 
     // Find prolog, epilog and unresolved
     // @Source: PistonMiner's elf2rel
@@ -247,31 +244,70 @@ int createRSO(fs::path input, ELFIO::elfio& inputElf, fs::path output, bool full
     std::vector<RSOSymbol> internalSymbolTable;
     std::vector<RSOSymbol> externalSymbolTable;
 
-    const auto tryInsertSymbol = [&](std::vector<RSOSymbol>& symbolTable, std::string symbolName,
-                                    u32 sectionIndex, u32 sectionRelativeOffset) {
+    // Collect all the symbol exported/imported
+    {
+        ELFIO::Elf64_Addr addr;
+        ELFIO::Elf_Xword size;
+        unsigned char bind;
+        unsigned char type;
+        ELFIO::Elf_Half sectionIndex;
+        unsigned char other;
+        std::string symbolName;
+        for (auto i = 0u; i < symbols.get_symbols_num(); ++i)
+        {
+            if (!symbols.get_symbol(static_cast<ELFIO::Elf_Xword>(i), symbolName, addr, size, bind,
+                                    type, sectionIndex, other))
+            {
+                continue;
+            }
+
+            if (symbolName.empty())
+            {
+                continue;
+            }
+
+            // Symbol to export?
+            if (bind != STB_LOCAL && sectionIndex != 0)
+            {
+                if (exportList)
+                {
+                    const auto it = std::find(exportList->begin(), exportList->end(), symbolName);
+                    if (it == exportList->end())
+                    {
+                        // Symbol not found in the export list so skip the symbol
+                        continue;
+                    }
+                }
+
+                const auto hash = getHash(symbolName);
+                internalSymbolTable.emplace_back(
+                    RSOSymbol{hash, symbolName, sectionIndex, static_cast<u32>(addr)});
+
+                continue;
+            }
+
+            // External/Imported Symbol
+            if (sectionIndex == 0)
+            {
+                const auto hash = getHash(symbolName);
+                externalSymbolTable.emplace_back(
+                    RSOSymbol{hash, symbolName, sectionIndex, static_cast<u32>(addr)});
+            }
+        }
+    }
+
+    const auto tryGetSymbol = [](const std::vector<RSOSymbol>& symbolTable,
+                                 std::string& symbolName) {
         const auto hash = getHash(symbolName);
         const auto it = std::find_if(symbolTable.begin(), symbolTable.end(),
                                      [&hash](const RSOSymbol& p) { return p.hash == hash; });
 
         if (it != symbolTable.end())
         {
-            return std::make_tuple(static_cast<u32>(it - symbolTable.begin()), hash);
+            return std::make_tuple(static_cast<s32>(it - symbolTable.begin()), hash);
         }
 
-        auto appendSymbol = true;
-        if (exportList && &internalSymbolTable == &symbolTable)
-        {
-            const auto it = std::find(exportList->begin(), exportList->end(), symbolName);
-            appendSymbol = it != exportList->end();
-        }
-
-        if (appendSymbol)
-        {
-            symbolTable.emplace_back(
-                RSOSymbol{hash, std::move(symbolName), sectionIndex, sectionRelativeOffset});
-        }
-
-        return std::make_tuple(static_cast<u32>(symbolTable.size() - 1), hash);
+        return std::make_tuple(static_cast<s32>(-1), hash);
     };
 
     std::vector<RSORelocation> internalRelocations;
@@ -330,7 +366,7 @@ int createRSO(fs::path input, ELFIO::elfio& inputElf, fs::path output, bool full
             if (!symbols.get_symbol(symbol, symbolName, symbolValue, size, bind, symbolType,
                                     sectionIndex, other))
             {
-                printf("Unable to find symbol %u in symbol table!\n",
+                printf("Error! Unable to find symbol %u in symbol table!\n",
                        static_cast<uint32_t>(symbol));
                 return 1;
             }
@@ -340,25 +376,32 @@ int createRSO(fs::path input, ELFIO::elfio& inputElf, fs::path output, bool full
             rel.offset = static_cast<uint32_t>(offset);
             rel.type = type;
             rel.targetSection = static_cast<uint8_t>(sectionIndex);
-            if (sectionIndex != 0)
+            if (sectionIndex == 0)
             {
-                // Internal Relocation
-                auto [symbolIndex, hash] = tryInsertSymbol(
-                    internalSymbolTable, std::move(symbolName), rel.section, symbolValue);
+                // External Relocation
+                auto [symbolIndex, hash] = tryGetSymbol(externalSymbolTable, symbolName);
+                if (symbolIndex == -1)
+                {
+                    // This can't happen because the external relocation have a reference to the
+                    // symbol index in the import table
+                    printf("Internal Error! Unable to find relocation symbol. Please contact "
+                           "developer.\n");
+                    return 2;
+                }
+
                 rel.symbolHash = hash;
-                rel.symbolIndex = symbolIndex;
-                rel.addend = static_cast<uint32_t>(addend + symbolValue);
-                internalRelocations.emplace_back(rel);
+                rel.symbolIndex = static_cast<u32>(symbolIndex);
+                rel.addend = 0;
+                externalRelocations.emplace_back(rel);
             }
             else
             {
-                // External Relocation
-                auto [symbolIndex, hash] = tryInsertSymbol(
-                    externalSymbolTable, std::move(symbolName), rel.section, rel.offset);
+                // Internal Relocation
+                auto [symbolIndex, hash] = tryGetSymbol(internalSymbolTable, symbolName);
                 rel.symbolHash = hash;
-                rel.symbolIndex = symbolIndex;
-                rel.addend = 0;
-                externalRelocations.emplace_back(rel);
+                rel.symbolIndex = static_cast<u32>(symbolIndex);
+                rel.addend = static_cast<uint32_t>(addend + symbolValue);
+                internalRelocations.emplace_back(rel);
             }
         }
     }
@@ -457,14 +500,11 @@ int createRSO(fs::path input, ELFIO::elfio& inputElf, fs::path output, bool full
             externalRelocations.begin(), externalRelocations.end(),
             [&](const RSORelocation& rel) { return rel.symbolHash == externalSymbol.hash; });
 
-        if (relIt == externalRelocations.end())
+        u32 relOffset = 0xffffffff;
+        if (relIt != externalRelocations.end())
         {
-            printf("Error! Unable to find relocation for external symbol %s",
-                   externalSymbol.symbol.c_str());
-            return 1;
+            relOffset = static_cast<u32>(relIt - externalRelocations.begin()) * 12;
         }
-
-        const auto relOffset = static_cast<u32>(relIt - externalRelocations.begin()) * 12;
 
         writeImportSymbol(fileWriter, nameOffset, relOffset);
     }
