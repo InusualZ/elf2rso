@@ -292,6 +292,8 @@ int createRSO(fs::path input, ELFIO::elfio& inputElf, fs::path output, bool full
                 const auto hash = getHash(symbolName);
                 externalSymbolTable.emplace_back(
                     RSOSymbol{hash, symbolName, sectionIndex, static_cast<u32>(addr)});
+
+                continue;
             }
         }
     }
@@ -408,8 +410,8 @@ int createRSO(fs::path input, ELFIO::elfio& inputElf, fs::path output, bool full
                     *reinterpret_cast<const u32*>(targetSection->get_data() + offset);
 
                 targetInstruction = Common::swap32(targetInstruction);
-                const auto replacementInstruction = Common::swap32(
-                    ((static_cast<u32>(symbolValue) - static_cast<u32>(offset)) & 0x3fffffcu) | (targetInstruction & 0xfc000003u));
+                const auto offsetDifference = static_cast<s64>(header.unresolved_function_offset) - static_cast<s64>(offset);
+                const auto replacementInstruction = Common::swap32((static_cast<u32>(offsetDifference) & 0x3fffffcu) | (targetInstruction & 0xfc000003u));
 
                 const auto& fileSection = rsoSections[relocationSectionIndex];
                 const auto currentPosition = fileWriter.position();
