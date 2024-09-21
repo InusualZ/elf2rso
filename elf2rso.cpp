@@ -555,6 +555,8 @@ int createRSO(fs::path input, ELFIO::elfio& inputElf, fs::path output, bool full
     fileWriter.padToAlignment(32);
     fileWriter.seek(0);
     writeModuleHeader(fileWriter, header);
+
+    return 0;
 }
 
 int createStaticRSO(fs::path input, ELFIO::elfio inputElf, fs::path output, bool fullpath,
