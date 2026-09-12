@@ -424,6 +424,22 @@ int createRSO(fs::path input, ELFIO::elfio& inputElf, fs::path output, bool full
         }
     }
 
+    // The native RSO loader dereferences every import's relocation offset,
+    // including 0xffffffff. Undefined symbols left by section GC must not
+    // become imports unless a retained relocation actually references them.
+    externalSymbolTable.erase(
+        std::remove_if(externalSymbolTable.begin(), externalSymbolTable.end(),
+                       [&](const RSOSymbol& symbol) {
+                           return std::none_of(externalRelocations.begin(),
+                                               externalRelocations.end(),
+                                               [&](const RSORelocation& relocation) {
+                                                   return relocation.symbolHash == symbol.hash;
+                                               });
+                       }),
+        externalSymbolTable.end());
+
+    // Removing unused imports preserves the relative order of referenced IDs.
+    // Serialization below resolves their new indices from the filtered table.
     // Sort External Relocation, by Imported Symbol Index
     std::sort(externalRelocations.begin(), externalRelocations.end(),
               [](const RSORelocation& left, const RSORelocation& right) {
@@ -491,6 +507,12 @@ int createRSO(fs::path input, ELFIO::elfio& inputElf, fs::path output, bool full
         const auto symbolIndex = static_cast<u32>(symbolIt - externalSymbolTable.begin());
         writeRelocation(fileWriter, offset, symbolIndex, relocation.type, relocation.addend);
     }
+
+    // Native LocateObject/RSOLink scan until the symbol ID changes, without
+    // testing the table end. Keep a non-import ID after the final run. This
+    // sentinel is not a relocation and is excluded from the header's size.
+    if (!externalRelocations.empty())
+        writeRelocation(fileWriter, 0, 0x00ffffff, R_PPC_NONE, 0);
 
     // Write Imported Symbol Table
 
