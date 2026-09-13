@@ -368,6 +368,41 @@ int createRSO(fs::path input, ELFIO::elfio& inputElf, fs::path output, bool full
                 return 1;
             }
 
+            // RMHE08 does not apply ELF REL32 records. Relative switch-table
+            // entries between file-backed sections are independent of the load
+            // base: S + A - P can be resolved using the emitted RSO file layout.
+            // BSS and external symbols have no such common-base guarantee.
+            if (type == R_PPC_REL32)
+            {
+                if (relocationSectionIndex >= rsoSections.size() || sectionIndex == 0 ||
+                    sectionIndex >= rsoSections.size())
+                {
+                    printf("Error! REL32 requires retained file-backed sections.\n");
+                    return 1;
+                }
+                const auto& source = rsoSections[relocationSectionIndex];
+                const auto& target = rsoSections[sectionIndex];
+                if (source.offset == 0 || target.offset == 0 || source.size < 4 ||
+                    offset > source.size - 4 || symbolValue > target.size)
+                {
+                    printf("Error! REL32 has an unavailable section or invalid location.\n");
+                    return 1;
+                }
+                const auto patch = static_cast<s64>(source.offset) + static_cast<s64>(offset);
+                const auto delta = static_cast<s64>(target.offset) + static_cast<s64>(symbolValue) +
+                                   addend - patch;
+                if (delta < INT32_MIN || delta > INT32_MAX)
+                {
+                    printf("Error! REL32 displacement is outside signed 32-bit range.\n");
+                    return 1;
+                }
+                const auto position = fileWriter.position();
+                fileWriter.seek(static_cast<size_t>(patch));
+                fileWriter.writeBE(static_cast<u32>(delta));
+                fileWriter.seek(position);
+                continue;
+            }
+
             RSORelocation rel;
             rel.section = relocationSectionIndex;
             rel.offset = static_cast<uint32_t>(offset);

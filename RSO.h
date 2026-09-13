@@ -48,6 +48,8 @@ enum RSORelocationType
     R_PPC_ADDR14_BRNKTAKEN,
     R_PPC_REL24,
     R_PPC_REL14,
+    // ELF relative words are resolved for file-backed sections during conversion.
+    R_PPC_REL32 = 26,
 };
 
 struct RSORelocation
